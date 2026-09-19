@@ -60,7 +60,7 @@ class OnnxModelRunner(
         }
     }
 
-    fun runFloatTensor(name: String, shape: LongArray, values: FloatArray) {
+    fun runFloatTensor(name: String, shape: LongArray, values: FloatArray): Map<String, Any> {
         require(shape.fold(1L) { a, b -> a * b } == values.size.toLong()) {
             "Tensor shape does not match value count"
         }
