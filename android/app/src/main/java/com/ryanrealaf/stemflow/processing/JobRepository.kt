@@ -35,7 +35,7 @@ class JobRepository(private val root: File) {
         File(dir, "job.properties").outputStream().use { p.store(it, "StemFlow job state") }
     }
 
-    fun load(jobId: String): JobState? {
+    fun directory(jobId: String): File = File(root, jobId)\n\n    fun load(jobId: String): JobState? {
         val file = File(root, "$jobId/job.properties")
         if (!file.isFile) return null
         val p = Properties()
