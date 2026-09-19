@@ -38,7 +38,7 @@ class StemFlowProcessingService : Service() {
         stopRequested = false
         ServiceCompat.startForeground(
             this, NOTIFICATION_ID, notification("Preparing audio…"),
-            if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else 0
+            if (Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else 0
         )
         worker?.interrupt()
         worker = Thread {
@@ -141,6 +141,7 @@ class StemFlowProcessingService : Service() {
     override fun onTimeout(startId: Int, fgsType: Int) {
         stopRequested = true
         worker?.interrupt()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
     }
 
