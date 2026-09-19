@@ -58,8 +58,17 @@ class StemFlowProcessingService : Service() {
         require(contentResolver.openAssetFileDescriptor(Uri.parse(initial.inputUri), "r") != null) {
             "Unable to open selected audio"
         }
-        update(initial.copy(phase = JobPhase.SEPARATING, progress = 0f, message = "Separation engine not installed"))
-        throw IllegalStateException("No neural stem separator is installed yet")
+        val separator = HtDemucs6sSeparator(this)
+        val transcriber = UnsupportedBasicPitchEngine()
+        val runner = JobRunner(
+            resolver = contentResolver,
+            jobs = jobs,
+            separator = separator,
+            transcriber = transcriber,
+            cancelled = { stopRequested },
+            update = ::update
+        )
+        runner.run(initial)
     }
 
     private fun update(state: JobState) {
