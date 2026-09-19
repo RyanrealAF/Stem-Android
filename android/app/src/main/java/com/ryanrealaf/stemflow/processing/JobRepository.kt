@@ -3,14 +3,21 @@ package com.ryanrealaf.stemflow.processing
 import android.content.Context
 import java.io.File
 import java.util.Properties
+import java.util.UUID
 
-class JobRepository private constructor(private val root: File) {
+class JobRepository(private val root: File) {
     constructor(context: Context) : this(File(context.filesDir, "stemflow/jobs"))
 
     init { root.mkdirs() }
 
     fun create(inputUri: String): JobState {
-        val state = JobState(java.util.UUID.randomUUID().toString(), inputUri, JobPhase.VALIDATING, 0f, "Queued")
+        val state = JobState(
+            UUID.randomUUID().toString(),
+            inputUri,
+            JobPhase.VALIDATING,
+            0f,
+            "Queued"
+        )
         save(state)
         return state
     }
@@ -33,10 +40,11 @@ class JobRepository private constructor(private val root: File) {
         if (!file.isFile) return null
         val p = Properties()
         file.inputStream().use { p.load(it) }
+        val phase = runCatching { JobPhase.valueOf(p.getProperty("phase")) }.getOrNull() ?: return null
         return JobState(
             p.getProperty("jobId") ?: return null,
             p.getProperty("inputUri") ?: return null,
-            runCatching { JobPhase.valueOf(p.getProperty("phase")) }.getOrNull() ?: return null,
+            phase,
             p.getProperty("progress")?.toFloatOrNull() ?: 0f,
             p.getProperty("message") ?: "",
             p.getProperty("error")
@@ -45,6 +53,14 @@ class JobRepository private constructor(private val root: File) {
 
     fun incomplete(): List<JobState> =
         root.listFiles()?.mapNotNull { load(it.name) }
-            ?.filter { it.phase !in setOf(JobPhase.COMPLETE, JobPhase.FAILED, JobPhase.CANCELLED) }
+            ?.filter { it.phase !in TERMINAL_PHASES }
             ?: emptyList()
+
+    companion object {
+        private val TERMINAL_PHASES = setOf(
+            JobPhase.COMPLETE,
+            JobPhase.FAILED,
+            JobPhase.CANCELLED
+        )
+    }
 }
