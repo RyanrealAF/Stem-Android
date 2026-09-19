@@ -16,64 +16,66 @@ class OnnxModelRunner(
     init {
         require(modelFile.isFile) { "ONNX model not found: " + modelFile.absolutePath }
         val options = OrtSession.SessionOptions()
-        if (useXnnpack) runCatching { options.addXnnpack(mapOf("intra_op_num_threads" to "2")) }
+        if (useXnnpack) runCatching {
+            options.addXnnpack(mapOf("intra_op_num_threads" to "2"))
+        }
         session = environment.createSession(modelFile.absolutePath, options)
     }
 
     fun inputNames(): Set<String> = session.inputNames
     fun outputNames(): Set<String> = session.outputNames
 
-    fun runDemucs(values: FloatArray, samples: Int): Array<FloatArray> {
-        require(values.size == 2 * samples)
-        val input = OnnxTensor.createTensor(
+    fun runBasicPitch(values: FloatArray): Map<String, FloatArray> {
+        require(values.size == BasicPitchModelManager.INPUT_SAMPLES)
+        val inputName = session.inputNames.first()
+        OnnxTensor.createTensor(
             environment,
             FloatBuffer.wrap(values),
-            longArrayOf(1, 2, samples.toLong())
-        )
+            longArrayOf(1, values.size.toLong(), 1L)
+        ).use { input ->
+            session.run(mapOf(inputName to input)).use { result ->
+                return result.associate { value ->
+                    value.name to flatten(value.value ?: error("Basic Pitch output has no value"))
+                }
+            }
+        }
+    }
+
+    fun runDemucs(values: FloatArray, samples: Int): Array<FloatArray> {
+        require(values.size == 2 * samples)
+        val input = OnnxTensor.createTensor(environment, FloatBuffer.wrap(values),
+            longArrayOf(1, 2, samples.toLong()))
         try {
             session.run(mapOf("mix" to input)).use { result ->
                 val value = result[0].value ?: error("Demucs returned no output")
                 val batch = value as? Array<*> ?: error("Unexpected Demucs output type")
-                val sources = batch.firstOrNull() as? Array<*>
-                    ?: error("Unexpected Demucs batch shape")
-                val output = Array(sources.size) { sourceIndex ->
-                    val source = sources[sourceIndex] as? Array<*>
-                        ?: error("Unexpected Demucs source shape")
-                    require(source.size == 2) { "Demucs output is not stereo" }
+                val sources = batch.firstOrNull() as? Array<*> ?: error("Unexpected Demucs batch shape")
+                return Array(sources.size) { sourceIndex ->
+                    val source = sources[sourceIndex] as? Array<*> ?: error("Unexpected Demucs source shape")
+                    require(source.size == 2)
                     val left = source[0] as? FloatArray ?: error("Unexpected left channel type")
                     val right = source[1] as? FloatArray ?: error("Unexpected right channel type")
-                    require(left.size == samples && right.size == samples) {
-                        "Demucs output sample count mismatch"
-                    }
-                    FloatArray(samples * 2).also { interleaved ->
+                    require(left.size == samples && right.size == samples)
+                    FloatArray(samples * 2).also {
                         var j = 0
-                        for (i in 0 until samples) {
-                            interleaved[j++] = left[i]
-                            interleaved[j++] = right[i]
-                        }
+                        for (i in 0 until samples) { it[j++] = left[i]; it[j++] = right[i] }
                     }
                 }
-                return output
             }
-        } finally {
-            input.close()
-        }
+        } finally { input.close() }
     }
 
-    fun runFloatTensor(name: String, shape: LongArray, values: FloatArray): Map<String, Any> {
-        require(shape.fold(1L) { a, b -> a * b } == values.size.toLong()) {
-            "Tensor shape does not match value count"
-        }
-        OnnxTensor.createTensor(environment, FloatBuffer.wrap(values), shape).use { input ->
-            session.run(mapOf(name to input)).use { result ->
-                return result.associate { value ->
-                    value.name to (value.value ?: error("ONNX output has no value"))
-                }
+    private fun flatten(value: Any): FloatArray = when (value) {
+        is FloatArray -> value
+        is Array<*> -> {
+            val parts = value.map { flatten(it ?: error("Null ONNX tensor element")) }
+            FloatArray(parts.sumOf { it.size }).also { out ->
+                var offset = 0
+                parts.forEach { part -> part.copyInto(out, offset); offset += part.size }
             }
         }
+        else -> error("Unsupported ONNX tensor output type: " + value::class.java.name)
     }
 
-    override fun close() {
-        session.close()
-    }
+    override fun close() { session.close() }
 }
