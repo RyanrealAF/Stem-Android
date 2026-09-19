@@ -47,3 +47,12 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Android build outputs and Gradle
+.gradle
+.gradle/
+**/.gradle/
+build/
+**/build/
+*.apk
+*.aar
