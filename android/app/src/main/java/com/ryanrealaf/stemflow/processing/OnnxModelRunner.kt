@@ -23,7 +23,44 @@ class OnnxModelRunner(
     fun inputNames(): Set<String> = session.inputNames
     fun outputNames(): Set<String> = session.outputNames
 
-    fun runFloatTensor(name: String, shape: LongArray, values: FloatArray): Map<String, Any> {
+    fun runDemucs(values: FloatArray, samples: Int): Array<FloatArray> {
+        require(values.size == 2 * samples)
+        val input = OnnxTensor.createTensor(
+            environment,
+            FloatBuffer.wrap(values),
+            longArrayOf(1, 2, samples.toLong())
+        )
+        try {
+            session.run(mapOf("mix" to input)).use { result ->
+                val value = result[0].value ?: error("Demucs returned no output")
+                val batch = value as? Array<*> ?: error("Unexpected Demucs output type")
+                val sources = batch.firstOrNull() as? Array<*>
+                    ?: error("Unexpected Demucs batch shape")
+                val output = Array(sources.size) { sourceIndex ->
+                    val source = sources[sourceIndex] as? Array<*>
+                        ?: error("Unexpected Demucs source shape")
+                    require(source.size == 2) { "Demucs output is not stereo" }
+                    val left = source[0] as? FloatArray ?: error("Unexpected left channel type")
+                    val right = source[1] as? FloatArray ?: error("Unexpected right channel type")
+                    require(left.size == samples && right.size == samples) {
+                        "Demucs output sample count mismatch"
+                    }
+                    FloatArray(samples * 2).also { interleaved ->
+                        var j = 0
+                        for (i in 0 until samples) {
+                            interleaved[j++] = left[i]
+                            interleaved[j++] = right[i]
+                        }
+                    }
+                }
+                return output
+            }
+        } finally {
+            input.close()
+        }
+    }
+
+    fun runFloatTensor(name: String, shape: LongArray, values: FloatArray) {
         require(shape.fold(1L) { a, b -> a * b } == values.size.toLong()) {
             "Tensor shape does not match value count"
         }
