@@ -38,7 +38,7 @@ class StemFlowProcessingService : Service() {
         stopRequested = false
         ServiceCompat.startForeground(
             this, NOTIFICATION_ID, notification("Preparing audio…"),
-            if (Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else 0
         )
         worker?.interrupt()
         worker = Thread {
