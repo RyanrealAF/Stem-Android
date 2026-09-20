@@ -193,26 +193,8 @@ class StandardMidiWriter(private val ppq: Int = 480, private val bpm: Int = 120)
     }
 }
 
-class PolyphonicStemTranscriber(
-    private val decoder: PolyphonicNoteDecoder = PolyphonicNoteDecoder(),
-    private val midiWriter: StandardMidiWriter = StandardMidiWriter()
-) : StemTranscriber {
-
+class PolyphonicStemTranscriber : StemTranscriber {
     override fun transcribe(stem: File, outputMidi: File, progress: (Float, String) -> Unit) {
-        progress(0.1f, "Inspecting audio stem…")
-        require(stem.exists()) { "Audio stem file is missing" }
-
-        progress(0.4f, "Transcribing polyphonic notes…")
-        val notes = if (stem.length() > 0) {
-            val dummyActivations = Array(100) { FloatArray(88) }
-            decoder.decodeFrameActivations(dummyActivations, frameDurationSec = 0.01f)
-        } else {
-            emptyList()
-        }
-
-        progress(0.8f, "Writing MIDI events…")
-        midiWriter.writeMidi(notes, outputMidi)
-
-        progress(1.0f, "Transcription complete")
+        throw UnsupportedOperationException("Legacy synthetic transcriber removed. Use NeuralPitchTranscriber.")
     }
 }
