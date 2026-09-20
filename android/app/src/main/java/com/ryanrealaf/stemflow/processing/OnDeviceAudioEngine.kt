@@ -76,7 +76,9 @@ class NeuralStemSeparator(private val c:Context):StemSeparator{
 }
 
 class NeuralPitchTranscriber(private val c:Context):StemTranscriber{
- private val dec=Decode();private val models=Models(c);private val env=OrtEnvironment.getEnvironment();private val sr=22050;private val hop=256;private val win=43744;private val overlap=7680;private val stride=win-overlap
+ private val dec=Decode();private val models=Models(c);private val env=OrtEnvironment.getEnvironment();private val sr=22050;private val hop=256
+ // Spotify Basic Pitch ICASSP 2022 model input is [1, 43844, 1], not 43744.
+ private val win=43844;private val overlap=7680;private val stride=win-overlap
  override fun transcribe(stem:File,midi:File,progress:(Float,String)->Unit){
   val model=models.get("nmp.onnx",PITCH_URL){n,t->progress(if(t>0).08f*n/t else .02f,"Downloading Basic Pitch model…")}
   val p=dec.resample(dec.read(c,Uri.fromFile(stem)),sr);val mono=FloatArray(p.n){(p.ch[0][it]+p.ch[1][it])*.5f};val input=FloatArray(mono.size+overlap/2);mono.copyInto(input,overlap/2)
