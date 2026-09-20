@@ -19,7 +19,8 @@ class StemFlowProcessingService : Service() {
     private var worker: Thread? = null
     private lateinit var jobs: JobRepository
     private val audioInspector = AudioInspector()
-    private val transcriber = PolyphonicStemTranscriber()
+    private val separator by lazy { NeuralStemSeparator(this) }
+    private val transcriber by lazy { NeuralPitchTranscriber(this) }
     @Volatile private var stopRequested = false
 
     override fun onCreate() {
@@ -62,59 +63,43 @@ class StemFlowProcessingService : Service() {
     }
 
     private fun runPipeline(initial: JobState, uri: Uri) {
-        update(initial.copy(phase = JobPhase.VALIDATING, progress = 0f, message = "Validating input…"))
+        update(initial.copy(phase = JobPhase.VALIDATING, progress = 0f, message = "Validating and decoding audio…"))
         check(!stopRequested) { "Cancelled" }
-
         val metadata = audioInspector.inspect(this, uri)
-        val jobDir = File(filesDir, "stemflow/jobs/${initial.jobId}").apply { mkdirs() }
-
-        update(
-            initial.copy(
-                phase = JobPhase.SEPARATING,
-                progress = 0.1f,
-                message = "Input validated (${metadata.sampleRate} Hz, ${metadata.channelCount} ch)"
-            )
-        )
-        check(!stopRequested) { "Cancelled" }
-
-        // Stems setup
+        val jobDir = File(filesDir, "stemflow/jobs/" + initial.jobId).apply { mkdirs() }
         val stemsDir = File(jobDir, "stems").apply { mkdirs() }
         val midiDir = File(jobDir, "midi").apply { mkdirs() }
-        val stemTypes = listOf("vocals", "drums", "bass", "guitar", "piano", "other")
 
-        // Prepare stem files for subsequent neural inference
-        val stemFiles = stemTypes.associateWith { name ->
-            File(stemsDir, "$name.wav").also { if (!it.exists()) it.createNewFile() }
+        update(initial.copy(phase = JobPhase.SEPARATING, progress = 0.05f, message = "Running HTDemucs on-device (" + metadata.sampleRate + " Hz, " + metadata.channelCount + " ch)…"))
+        check(!stopRequested) { "Cancelled" }
+        separator.separate(uri, stemsDir) { p, msg ->
+            check(!stopRequested) { "Cancelled" }
+            update(initial.copy(phase = JobPhase.SEPARATING, progress = p, message = msg))
         }
 
-        val stemPhases = listOf(
-            JobPhase.TRANSCRIBING_VOCALS to "vocals",
-            JobPhase.TRANSCRIBING_DRUMS to "drums",
-            JobPhase.TRANSCRIBING_BASS to "bass",
-            JobPhase.TRANSCRIBING_GUITAR to "guitar",
-            JobPhase.TRANSCRIBING_PIANO to "piano",
-            JobPhase.TRANSCRIBING_OTHER to "other"
-        )
-
-        for ((phase, stemName) in stemPhases) {
+        val stemNames = listOf("vocals", "drums", "bass", "other")
+        for ((index, stemName) in stemNames.withIndex()) {
             check(!stopRequested) { "Cancelled" }
-            update(initial.copy(phase = phase, progress = 0.3f, message = "Transcribing $stemName…"))
-
-            val stemFile = stemFiles[stemName] ?: continue
-            val midiFile = File(midiDir, "$stemName.mid")
-
-            transcriber.transcribe(stemFile, midiFile) { p, msg ->
+            val phase = when (stemName) {
+                "vocals" -> JobPhase.TRANSCRIBING_VOCALS
+                "drums" -> JobPhase.TRANSCRIBING_DRUMS
+                "bass" -> JobPhase.TRANSCRIBING_BASS
+                else -> JobPhase.TRANSCRIBING_OTHER
+            }
+            val stem = File(stemsDir, stemName + ".wav")
+            val midi = File(midiDir, stemName + ".mid")
+            update(initial.copy(phase = phase, progress = 0.85f + index * 0.03f, message = "Running Basic Pitch on " + stemName + "…"))
+            transcriber.transcribe(stem, midi) { p, msg ->
                 check(!stopRequested) { "Cancelled" }
-                update(initial.copy(phase = phase, progress = 0.3f + p * 0.1f, message = "$stemName: $msg"))
+                update(initial.copy(phase = phase, progress = 0.85f + index * 0.03f + p * 0.03f, message = stemName + ": " + msg))
             }
         }
 
-        update(initial.copy(phase = JobPhase.EXPORTING, progress = 0.95f, message = "Finalizing job…"))
-        check(!stopRequested) { "Cancelled" }
-
-        update(initial.copy(phase = JobPhase.COMPLETE, progress = 1.0f, message = "Processing complete"))
+        update(initial.copy(phase = JobPhase.EXPORTING, progress = 0.98f, message = "Validating neural outputs…"))
+        for (name in stemNames) require(File(stemsDir, name + ".wav").length() > 44) { "Missing " + name + " stem" }
+        for (name in stemNames) require(File(midiDir, name + ".mid").length() > 32) { "Missing " + name + " MIDI" }
+        update(initial.copy(phase = JobPhase.COMPLETE, progress = 1.0f, message = "Real stems + MIDI complete"))
     }
-
     private fun update(state: JobState) {
         jobs.save(state)
         updateNotification(state.message)
