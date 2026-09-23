@@ -37,10 +37,12 @@ class StemFlowProcessingService : Service() {
         if (uri == null) return START_NOT_STICKY
 
         stopRequested = false
-        ServiceCompat.startForeground(
-            this, NOTIFICATION_ID, notification("Preparing audio…"),
-            if (Build.VERSION.SDK_INT >= 35) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else 0
-        )
+        runCatching {
+            ServiceCompat.startForeground(
+                this, NOTIFICATION_ID, notification("Preparing audio…"),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING else 0
+            )
+        }
         worker?.interrupt()
         worker = Thread {
             val state = jobs.create(uri.toString())
@@ -114,7 +116,9 @@ class StemFlowProcessingService : Service() {
             .build()
 
     private fun updateNotification(text: String) {
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(text))
+        runCatching {
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification(text))
+        }
     }
 
     private fun createChannel() {
